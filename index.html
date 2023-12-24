@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<!-- Program exported to HTML using the KA Project Exporter by @MushyAvocado 
+https://www.khanacademy.org/computer-programming/ka-project-exporter/5195486791385088
+-->
+	
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+	<title>Chrismas</title>
+	<style>
+		
+		
+		/* Change the color as you want */
+		:root {
+			--background-color: #000000;
+		}
+		
+		
+		html, body, #wrapper {
+			overflow: hidden;
+			width: 100%;
+		    height: 100%;
+			margin: 0px;
+			padding: 0px;
+		    width: calc(100% + 1px);
+		}
+		
+		body {
+		    background-color: var(--background-color);
+		}
+		
+		
+		canvas {
+			width: fit-content;
+			height: fit-content;
+		}
+		
+		canvas:focus {
+			outline: none;
+		}
+		
+		/* Automatically fits to the remaining height and centers the canvas it contains */
+		#wrapper {
+			padding: 0px;
+			margin: 0px;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			width: 100%;
+		}
+		
+</style>
+</head>
+<body id="wrapper">
+    <!-- Canvases with a class of "sketch" are applied to the program in the order importPJS() is called. -->
+    <canvas class="sketch"></canvas>
+	<!-- Load the PJS library -->
+	<script type="text/javascript" src="https://cdn.jsdelivr.net/gh/Khan/processing-js@master/processing.js"></script>
+	<!-- The exporter script must be loaded before the program script -->
+	<script type="text/javascript" src="https://cdn.jsdelivr.net/gh/Mushy-Avocado/KA-exporter@main/exporter.js"></script>
+	<!-- Run Khan Academy program and import PJS -->
+	<script type="application/javascript">
+		
+		
+		function program() {
+		    
+		    title("Chrismas");
+		    size(600, 600);
+		    
+
+			var AUTOCLICK_DELAY = 3.0;
+			
+			var COLOR_CHANGING_SPEED = 0.015;
+			var PARTICLE_SPEED = 0.01;
+			var PARTICLE_SPEED_RANGE = 1.1; // added % of orginal speed
+			var SCALING_FACTOR = 0.090; // controls the hexagon size
+			var BORDER_EXTEND = 1.1; // extends the border limit to include border hexes
+			var TILE_SCALE, SQRT_3, HALF_SQRT_3, HALF_TILE_SCALE, SCALED_SQRT;
+			var HEX_POINTS_RENDER;
+			var mostX = 0, mostY = 0; // grid size
+			var hexes = []; // contains hexagon objects
+			var transitions = [];
+			var autoClickTimer = 100;
+			var themeHue = Math.random() * 100;
+			var color1, color2;
+			var touchCountdown = 0;
+			var isTouching = false;
+			
+			
+			function randomInt(start, end) {
+			    return Math.floor(Math.random() * end + start);
+			}
+			function getRandomHex() {
+			    return hexes[randomInt(0, hexes.length)][randomInt(0, hexes[0].length)];
+			}
+			function getRandomItem(arr) { return arr[randomInt(0, arr.length)]; }
+			function shuffleArray(array) {
+			    var shuffledArr = [];
+			    while (array.length > 0){
+			        shuffledArr.push(array.pop(randomInt(0, array.length)));
+			    }
+			    return shuffledArr;
+			}
+			// returns the center position of the hexagon to render
+			function getHexagonRenderPosition(position) {
+			    return [
+			        (position[0] * TILE_SCALE * 3) / 2,
+			        (position[1] * 2 + position[0]) * SCALED_SQRT
+			    ];
+			}
+			function resetApp() {
+			    var oldTS = TILE_SCALE;
+			    // recalculate the constants for rendering
+			    TILE_SCALE = min(width, height) * SCALING_FACTOR;
+			    SQRT_3 = Math.sqrt(3);
+			    HALF_SQRT_3 = SQRT_3 / 2;
+			    HALF_TILE_SCALE = TILE_SCALE / 2;
+			    SCALED_SQRT = HALF_SQRT_3 * TILE_SCALE;
+			    HEX_POINTS_RENDER = [
+			        [HALF_TILE_SCALE, -SCALED_SQRT],
+			        [TILE_SCALE, 0],
+			        [HALF_TILE_SCALE, SCALED_SQRT],
+			        [-HALF_TILE_SCALE, SCALED_SQRT],
+			        [-TILE_SCALE, 0],
+			        [-HALF_TILE_SCALE, -SCALED_SQRT] // top left
+			    ];
+			    var newMostX = ceil(width * BORDER_EXTEND * 2 / 3 / TILE_SCALE);
+			    var newMostY = ceil(height * BORDER_EXTEND / SCALED_SQRT / 2);
+			    if (newMostX === mostX) { // only update rPos
+			        for (var y = 0; y < mostY; y++) {
+			            for (var x = 0; x < mostX; x++) {
+			                var hex = hexes[y][x];
+			                hex.renderPosition = getHexagonRenderPosition([x, y - floor(x / 2)]);
+			            }
+			        }
+			    }
+			    else { // reset all
+			        mostX = newMostX;
+			        mostY = newMostY;
+			        transitions = [];
+			        hexes = [];
+			        // set up a list of hexagons
+			        for (var y = 0; y < mostY; y++) {
+			            var row = [];
+			            for (var x = 0; x < mostX; x++) {
+			                row.push({
+			                    position: [x, y],
+			                    renderPosition: getHexagonRenderPosition([x, y - floor(x / 2)]),
+			                    colorBoolean: y > (mostY / mostX) * x,
+			                    isInTransition: false
+			                });
+			            }
+			            hexes.push(row);
+			        }
+			    }
+			    // TS changed? end all transitions
+			    if (oldTS !== TILE_SCALE) {
+			        for (var i = 0; i < transitions.length; i++) {
+			            var particles = transitions[i].particles;
+			            for (var j = 0; j < particles.length; j++) {
+			                particles[j].progress = 1;
+			            }
+			        }
+			    }
+			}
+			function generateParticles(hex1, hex2) {
+			    var h1rp = hex1.renderPosition;
+			    var h2rp = hex2.renderPosition;
+			    // [rx, ry, rotation]
+			    var infoA = [
+			        [h1rp[0] - HALF_TILE_SCALE, h1rp[1] - SCALED_SQRT / 3, 0],
+			        [h1rp[0], h1rp[1] - SCALED_SQRT * 2 / 3, 60],
+			        [h1rp[0] + HALF_TILE_SCALE, h1rp[1] - SCALED_SQRT / 3, 0],
+			        [h1rp[0] - HALF_TILE_SCALE, h1rp[1] + SCALED_SQRT / 3, 60],
+			        [h1rp[0], h1rp[1] + SCALED_SQRT * 2 / 3, 0],
+			        [h1rp[0] + HALF_TILE_SCALE, h1rp[1] + SCALED_SQRT / 3, 60] // bottom right
+			    ];
+			    var infoB = [
+			        [h2rp[0] - HALF_TILE_SCALE, h2rp[1] - SCALED_SQRT / 3, 0],
+			        [h2rp[0], h2rp[1] - SCALED_SQRT * 2 / 3, 60],
+			        [h2rp[0] + HALF_TILE_SCALE, h2rp[1] - SCALED_SQRT / 3, 0],
+			        [h2rp[0] - HALF_TILE_SCALE, h2rp[1] + SCALED_SQRT / 3, 60],
+			        [h2rp[0], h2rp[1] + SCALED_SQRT * 2 / 3, 0],
+			        [h2rp[0] + HALF_TILE_SCALE, h2rp[1] + SCALED_SQRT / 3, 60] // bottom right
+			    ];
+			    infoB = shuffleArray(infoB.slice());
+			    return infoA.map(function (a, i) {
+			        var b = infoB[i];
+			        var pc = {
+			            pointA: [a[0], a[1]],
+			            rotationA: a[2] + randomInt(-2, 3) * 120,
+			            pointB: [b[0], b[1]],
+			            rotationB: b[2],
+			            progress: 0,
+			            speed: PARTICLE_SPEED * (1 + Math.random() * PARTICLE_SPEED_RANGE),
+			            negArc: Math.random() > 0.5 ? 1 : -1
+			        };
+			        pc.midpoint = [(pc.pointA[0] + pc.pointB[0]) / 2, (pc.pointA[1] + pc.pointB[1]) / 2];
+			        pc.startAngle = 90 - atan2(pc.pointA[1] - pc.midpoint[1], pc.pointA[0] - pc.midpoint[0]);
+			        pc.radius = dist(pc.midpoint[0], pc.midpoint[1], pc.pointA[0], pc.pointA[1]);
+			        return pc;
+			    });
+			}
+			function hexTouched(hex) {
+			    var randomHex;
+			    var attemptsLeft = 25;
+			    while (true) {
+			        if (attemptsLeft-- < 0)
+			            {return;} // too long to find, cancel
+			        randomHex = getRandomHex();
+			        // same color? reroll
+			        if (randomHex.colorBoolean === hex.colorBoolean)
+			            {continue;}
+			        // is already in transition? reroll
+			        if (randomHex.isInTransition)
+			            {continue;}
+			        // too far away? reroll
+			        if (dist(hex.renderPosition[0], hex.renderPosition[1], randomHex.renderPosition[0], randomHex.renderPosition[1]) / TILE_SCALE > 5)
+			            {continue;}
+			        break;
+			    }
+			    // add transition
+			    transitions.push({
+			        hex1: hex, hex2: randomHex,
+			        colorBoolean: hex.colorBoolean,
+			        particles: generateParticles(hex, randomHex)
+			    });
+			    hex.colorBoolean = !hex.colorBoolean; // flip hex1
+			    //hex.isInTransition = true;
+			    randomHex.isInTransition = true;
+			}
+			
+			// draw hexagon shape for given position
+			function drawHexagon(renderPosition) {
+			    beginShape();
+			    for (var i = 0; i < HEX_POINTS_RENDER.length; i++) {
+			        vertex(renderPosition[0] + HEX_POINTS_RENDER[i][0], renderPosition[1] + HEX_POINTS_RENDER[i][1]);
+			    }
+			    endShape(CLOSE);
+			}
+			function drawTriangle(rPos, r) {
+			    pushMatrix();
+			    translate(rPos[0], rPos[1]);
+			    rotate(r);
+			    triangle(0, -SCALED_SQRT * 2 / 3, // top
+			    HALF_TILE_SCALE, SCALED_SQRT / 3, // bottom right
+			    -HALF_TILE_SCALE, SCALED_SQRT / 3 // bottom left
+			    );
+			    popMatrix();
+			}
+			function resetAutoClick() {
+			    autoClickTimer = 60 * AUTOCLICK_DELAY;
+			}
+			function draw() {
+			    // update theme colors
+			    themeHue += COLOR_CHANGING_SPEED; // color changing speed
+			    if (themeHue > 100)
+			        {themeHue -= 100;}
+			    color1 = color(themeHue, 70, 60);
+			    color2 = color(themeHue, 50, 30);
+			    touchCountdown--; // update input blocking timer
+			    background(color2);
+			    // render all hexes
+			    for (var y = 0; y < mostY; y++) {
+			        for (var x = 0; x < mostX; x++) {
+			            var hex = hexes[y][x];
+			            if (hex.colorBoolean){fill(color1);}
+			            else{noFill();}
+			            drawHexagon(hex.renderPosition);
+			            // check hover
+			            if (isTouching && !hex.isInTransition && dist(hex.renderPosition[0], hex.renderPosition[1], mouseX, mouseY) < TILE_SCALE * 0.85) {
+			                isTouching = false;
+			                resetAutoClick();
+			                hexTouched(hex);
+			            }
+			        }
+			    }
+			    // update transitions & particles
+			    for (var i = transitions.length - 1; i >= 0; i--) {
+			        var trs = transitions[i];
+			        // update and render particles
+			        fill(trs.colorBoolean ? color1 : color2);
+			        var particles = trs.particles;
+			        var allCompleted = true;
+			        for (var j = 0; j < particles.length; j++) {
+			            var pc = particles[j];
+			            if (pc.progress < 1)
+			                {allCompleted = false;}
+			            pc.progress = min(pc.progress + pc.speed, 1);
+			            var eProgress = sin(pc.progress * 90);
+			            var r = map(eProgress, 0, 1, pc.rotationA, pc.rotationB);
+			            var deg = map(eProgress, 0, 1, 0, 180);
+			            drawTriangle([
+			                sin(pc.startAngle + deg * pc.negArc) * pc.radius + pc.midpoint[0],
+			                cos(pc.startAngle + deg * pc.negArc) * pc.radius + pc.midpoint[1]
+			            ], r);
+			        }
+			        if (allCompleted) { // end transition
+			            transitions.splice(i, 1);
+			            trs.hex2.colorBoolean = !trs.hex2.colorBoolean;
+			            trs.hex1.isInTransition = false;
+			            trs.hex2.isInTransition = false;
+			        }
+			    }
+			    if (autoClickTimer-- === 0) {
+			        var randomHex = void 0;
+			        do {
+			            randomHex = getRandomHex();
+			        } while (randomHex.isInTransition);
+			        hexTouched(randomHex);
+			        resetAutoClick();
+			    }
+			    isTouching = false;
+			    
+			    fill(100);
+			    text("merry christmas :)", width/2, height/2);
+			}
+			
+			
+			function mouseClicked() {
+			    if (touchCountdown > 0){return;}
+			    touchCountdown = 5;
+			    isTouching = true;
+			}
+			
+			
+			textAlign(CENTER, CENTER);
+			textFont(createFont("comic sans ms"),40);
+			rectMode(CENTER);
+			imageMode(CENTER);
+			angleMode = "degrees";
+			strokeJoin(ROUND);
+			colorMode(HSB, 100);
+			noStroke();
+			resetApp();
+			
+		}
+		
+		 <script>
+		
+	</script>
+</body>
+
+</html>
